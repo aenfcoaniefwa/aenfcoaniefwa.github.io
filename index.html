@@ -45,14 +45,14 @@
       terrain: Cesium.Terrain.fromWorldTerrain(),
       selectionIndicator: false,
       infoBox: false,
-      timeline: false,  // 타임라인 제거
-      animation: false,  // 애니메이션 컨트롤 제거
-      baseLayerPicker: true,  // 베이스 레이어 선택
-      geocoder: true,  // 검색 기능
-      homeButton: true,  // 홈 버튼
-      sceneModePicker: true,  // 2D/3D 전환
-      navigationHelpButton: true,  // 도움말
-      fullscreenButton: true,  // 전체화면
+      timeline: false,
+      animation: false,
+      baseLayerPicker: true,
+      geocoder: true,
+      homeButton: true,
+      sceneModePicker: true,
+      navigationHelpButton: true,
+      fullscreenButton: true,
     });
     
     // ============================================================
@@ -89,12 +89,60 @@
     })();
     
     // ============================================================
-    // 범례 (좌측 상단)
+    // 나침반 (좌측 최상단)
+    // ============================================================
+    const compassHTML = `
+    <div id="compass" style="
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: 80px;
+      height: 80px;
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 50%;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: bold;
+      z-index: 1000;
+      border: 3px solid #333;
+    ">
+      <div id="compassNeedle" style="
+        position: absolute;
+        width: 0;
+        height: 0;
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        border-bottom: 35px solid red;
+        transform-origin: center bottom;
+        bottom: 50%;
+        transition: transform 0.3s ease;
+      "></div>
+      <div style="color: #333; position: absolute; top: 5px;">N</div>
+    </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', compassHTML);
+    
+    function updateCompass() {
+      const compassNeedle = document.getElementById('compassNeedle');
+      const heading = viewer.camera.heading;
+      const headingDegrees = Cesium.Math.toDegrees(heading);
+      compassNeedle.style.transform = `rotate(${-headingDegrees}deg)`;
+    }
+    
+    viewer.camera.changed.addEventListener(updateCompass);
+    updateCompass();
+    
+    // ============================================================
+    // 범례 (나침반 바로 아래)
     // ============================================================
     const legendHTML = `
     <div id="legendContainer" style="
       position: absolute;
-      top: 10px;
+      top: 100px;
       left: 10px;
       z-index: 1000;
     ">
@@ -109,6 +157,7 @@
         font-size: 14px;
         box-shadow: 0 2px 6px rgba(0,0,0,0.3);
         margin-bottom: 5px;
+        width: 100%;
       ">
         📊 범례 표시/숨김
       </button>
@@ -219,66 +268,6 @@
     });
     
     // ============================================================
-    // 포인트 크기 조절 컨트롤
-    // ============================================================
-    const pointSizeControlHTML = `
-    <div id="pointSizeControl" style="
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: rgba(255, 255, 255, 0.95);
-      padding: 15px;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      font-family: 'Segoe UI', Arial, sans-serif;
-      font-size: 13px;
-      z-index: 1000;
-      min-width: 200px;
-    ">
-      <div style="font-weight: bold; margin-bottom: 10px; color: #2c3e50;">
-        🎨 포인트 크기
-      </div>
-      <input type="range" id="pointSizeSlider" min="1" max="10" value="3" step="0.5" style="width: 100%; margin-bottom: 5px;">
-      <div style="text-align: center; color: #555;">
-        <span id="pointSizeValue">3</span> px
-      </div>
-      
-      <hr style="border: none; border-top: 1px solid #ddd; margin: 12px 0;">
-      
-      <div style="font-weight: bold; margin-bottom: 10px; color: #2c3e50;">
-        💡 Eye-Dome Lighting
-      </div>
-      <label style="display: flex; align-items: center; cursor: pointer;">
-        <input type="checkbox" id="edlToggle" checked style="margin-right: 8px;">
-        <span style="color: #555;">깊이감 향상</span>
-      </label>
-    </div>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', pointSizeControlHTML);
-    
-    const pointSizeSlider = document.getElementById('pointSizeSlider');
-    const pointSizeValue = document.getElementById('pointSizeValue');
-    const edlToggle = document.getElementById('edlToggle');
-    
-    pointSizeSlider.addEventListener('input', (e) => {
-      const size = parseFloat(e.target.value);
-      pointSizeValue.textContent = size;
-      
-      if (tileset) {
-        tileset.style = new Cesium.Cesium3DTileStyle({
-          pointSize: size
-        });
-      }
-    });
-    
-    edlToggle.addEventListener('change', (e) => {
-      if (tileset) {
-        tileset.pointCloudShading.eyeDomeLighting = e.target.checked;
-      }
-    });
-    
-    // ============================================================
     // 축척 (우측 하단)
     // ============================================================
     const scaleBarHTML = `
@@ -338,53 +327,92 @@
     updateScaleBar();
     
     // ============================================================
-    // 나침반 (좌측 중앙)
+    // 포인트 크기 조절 컨트롤 (축척 바로 위, 토글 가능)
     // ============================================================
-    const compassHTML = `
-    <div id="compass" style="
+    const pointSizeControlHTML = `
+    <div id="pointSizeContainer" style="
       position: absolute;
-      bottom: 50%;
-      left: 20px;
-      transform: translateY(50%);
-      width: 80px;
-      height: 80px;
-      background: rgba(255, 255, 255, 0.9);
-      border-radius: 50%;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-      font-weight: bold;
+      bottom: 90px;
+      right: 20px;
       z-index: 1000;
-      border: 3px solid #333;
     ">
-      <div id="compassNeedle" style="
-        position: absolute;
-        width: 0;
-        height: 0;
-        border-left: 8px solid transparent;
-        border-right: 8px solid transparent;
-        border-bottom: 35px solid red;
-        transform-origin: center bottom;
-        bottom: 50%;
-        transition: transform 0.3s ease;
-      "></div>
-      <div style="color: #333; position: absolute; top: 5px;">N</div>
+      <button id="pointSizeToggle" style="
+        background: rgba(50, 150, 250, 0.9);
+        color: white;
+        border: none;
+        padding: 10px 15px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 14px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        margin-bottom: 5px;
+        width: 100%;
+      ">
+        🎨 포인트 설정
+      </button>
+
+      <div id="pointSizePanel" style="
+        background: rgba(255, 255, 255, 0.95);
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        font-family: 'Segoe UI', Arial, sans-serif;
+        font-size: 13px;
+        min-width: 200px;
+      ">
+        <div style="font-weight: bold; margin-bottom: 10px; color: #2c3e50;">
+          📏 포인트 크기
+        </div>
+        <input type="range" id="pointSizeSlider" min="1" max="10" value="3" step="0.5" style="width: 100%; margin-bottom: 5px;">
+        <div style="text-align: center; color: #555;">
+          <span id="pointSizeValue">3</span> px
+        </div>
+        
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 12px 0;">
+        
+        <div style="font-weight: bold; margin-bottom: 10px; color: #2c3e50;">
+          💡 Eye-Dome Lighting
+        </div>
+        <label style="display: flex; align-items: center; cursor: pointer;">
+          <input type="checkbox" id="edlToggle" checked style="margin-right: 8px;">
+          <span style="color: #555;">깊이감 향상</span>
+        </label>
+      </div>
     </div>
     `;
     
-    document.body.insertAdjacentHTML('beforeend', compassHTML);
+    document.body.insertAdjacentHTML('beforeend', pointSizeControlHTML);
     
-    function updateCompass() {
-      const compassNeedle = document.getElementById('compassNeedle');
-      const heading = viewer.camera.heading;
-      const headingDegrees = Cesium.Math.toDegrees(heading);
-      compassNeedle.style.transform = `rotate(${-headingDegrees}deg)`;
-    }
+    const pointSizeToggle = document.getElementById('pointSizeToggle');
+    const pointSizePanel = document.getElementById('pointSizePanel');
+    const pointSizeSlider = document.getElementById('pointSizeSlider');
+    const pointSizeValue = document.getElementById('pointSizeValue');
+    const edlToggle = document.getElementById('edlToggle');
     
-    viewer.camera.changed.addEventListener(updateCompass);
-    updateCompass();
+    let pointSizeVisible = true;
+    
+    pointSizeToggle.addEventListener('click', () => {
+      pointSizeVisible = !pointSizeVisible;
+      pointSizePanel.style.display = pointSizeVisible ? 'block' : 'none';
+    });
+    
+    pointSizeSlider.addEventListener('input', (e) => {
+      const size = parseFloat(e.target.value);
+      pointSizeValue.textContent = size;
+      
+      if (tileset) {
+        tileset.style = new Cesium.Cesium3DTileStyle({
+          pointSize: size
+        });
+      }
+    });
+    
+    edlToggle.addEventListener('change', (e) => {
+      if (tileset) {
+        tileset.pointCloudShading.eyeDomeLighting = e.target.checked;
+      }
+    });
     
     // ============================================================
     // 카메라 초기 설정
