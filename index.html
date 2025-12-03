@@ -5,41 +5,43 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Toronto 3D - Vegetation Encroachment Analysis</title>
   
-  <!-- Cesium CSS -->
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; }
     
-    html, body, #cesiumContainer {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
+    /* 범례 체크박스 스타일 */
+    .legend-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 6px;
+      cursor: pointer;
+      padding: 2px 0;
     }
-    
-    body {
-      font-family: 'Segoe UI', Arial, sans-serif;
+    .legend-item:hover {
+      background-color: rgba(0,0,0,0.05);
+      border-radius: 4px;
+    }
+    .legend-checkbox {
+      margin-right: 8px;
+      cursor: pointer;
+      width: 16px;
+      height: 16px;
     }
   </style>
 </head>
 <body>
   <div id="cesiumContainer"></div>
   
-  <!-- Cesium JS -->
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
   
   <script>
     // ============================================================
-    // Cesium 초기화
+    // 1. Cesium 초기화
     // ============================================================
-    
-    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxYjdlMzQ0MS0yN2ZkLTRmN2YtOTQyNS03NzJmZjhiNThiNWMiLCJpZCI6MzU3MzAyLCJpYXQiOjE3NjIzMjY0MDB9.g8X6QOBkBlUd19ThMkr5mQySkylzEMhJbLLP3XcVtJA'; // ← 본인의 토큰으로 변경
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxYjdlMzQ0MS0yN2ZkLTRmN2YtOTQyNS03NzJmZjhiNThiNWMiLCJpZCI6MzU3MzAyLCJpYXQiOjE3NjIzMjY0MDB9.g8X6QOBkBlUd19ThMkr5mQySkylzEMhJbLLP3XcVtJA'; 
     
     const viewer = new Cesium.Viewer("cesiumContainer", {
       terrain: Cesium.Terrain.fromWorldTerrain(),
@@ -56,379 +58,280 @@
     });
     
     // ============================================================
-    // Asset 로드 + 포인트 스타일 설정
+    // 2. 상태 관리 (가시성 및 포인트 크기)
     // ============================================================
-    const assetId = 4134077; // ← 본인의 Asset ID로 변경
-    
+    const appState = {
+      pointSize: 3,
+      visibility: {
+        highRisk: true,  // Vegetation Red
+        safe: true,      // Vegetation Green
+        powerLine: true, // Class 5
+        pole: true       // Class 6
+      }
+    };
+
     let tileset;
+
+    // ============================================================
+    // 3. 스타일 업데이트 함수 (핵심 로직)
+    // ============================================================
+    function updateTilesetStyle() {
+      if (!tileset) return;
+
+      // 조건을 담을 배열
+      let conditions = [];
+
+      // 1) High Risk (Red): Class 3이면서 빨간색 성분 우세
+      if (appState.visibility.highRisk) {
+        conditions.push("(${Classification} === 3 && ${COLOR}.red > ${COLOR}.green)");
+      }
+
+      // 2) Safe (Green): Class 3이면서 초록색 성분 우세
+      if (appState.visibility.safe) {
+        conditions.push("(${Classification} === 3 && ${COLOR}.green >= ${COLOR}.red)");
+      }
+
+      // 3) Power Line: Class 5
+      if (appState.visibility.powerLine) {
+        conditions.push("${Classification} === 5");
+      }
+
+      // 4) Pole: Class 6
+      if (appState.visibility.pole) {
+        conditions.push("${Classification} === 6");
+      }
+
+      // 조건들을 OR (||) 연산자로 결합. 조건이 없으면 'false'(모두 숨김)
+      const showExpression = conditions.length > 0 ? conditions.join(" || ") : "false";
+
+      // 스타일 적용
+      tileset.style = new Cesium.Cesium3DTileStyle({
+        pointSize: appState.pointSize,
+        show: showExpression
+      });
+    }
+
+    // ============================================================
+    // 4. Asset 로드
+    // ============================================================
+    const assetId = 4134077;
     
     (async () => {
       try {
         tileset = await Cesium.Cesium3DTileset.fromIonAssetId(assetId);
         
-        // 포인트 클라우드 스타일 설정
-        tileset.style = new Cesium.Cesium3DTileStyle({
-          pointSize: 3
-        });
-        
+        // 초기 쉐이딩 설정
         tileset.pointCloudShading.attenuation = true;
-        tileset.pointCloudShading.geometricErrorScale = 1.0;
         tileset.pointCloudShading.maximumAttenuation = 4;
         tileset.pointCloudShading.baseResolution = 0.1;
         tileset.pointCloudShading.eyeDomeLighting = true;
-        tileset.pointCloudShading.eyeDomeLightingStrength = 1.0;
-        tileset.pointCloudShading.eyeDomeLightingRadius = 1.0;
         
         viewer.scene.primitives.add(tileset);
         viewer.zoomTo(tileset);
         
-        console.log("✅ 3D Tileset 로드 완료!");
+        // 초기 스타일 적용
+        updateTilesetStyle();
+        
+        console.log("✅ 3D Tileset 로드 및 스타일 적용 완료!");
       } catch (error) {
         console.error(`Asset 로드 실패: ${error}`);
       }
     })();
     
     // ============================================================
-    // 나침반 (좌측 최상단)
+    // 5. UI: 나침반
     // ============================================================
     const compassHTML = `
     <div id="compass" style="
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      width: 80px;
-      height: 80px;
-      background: rgba(255, 255, 255, 0.9);
-      border-radius: 50%;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-      font-weight: bold;
-      z-index: 1000;
-      border: 3px solid #333;
+      position: absolute; top: 10px; left: 10px; width: 80px; height: 80px;
+      background: rgba(255, 255, 255, 0.9); border-radius: 50%;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3); display: flex;
+      align-items: center; justify-content: center; font-size: 24px;
+      font-weight: bold; z-index: 1000; border: 3px solid #333;
     ">
       <div id="compassNeedle" style="
-        position: absolute;
-        width: 0;
-        height: 0;
-        border-left: 8px solid transparent;
-        border-right: 8px solid transparent;
-        border-bottom: 35px solid red;
-        transform-origin: center bottom;
-        bottom: 50%;
-        transition: transform 0.3s ease;
+        position: absolute; width: 0; height: 0;
+        border-left: 8px solid transparent; border-right: 8px solid transparent;
+        border-bottom: 35px solid red; transform-origin: center bottom;
+        bottom: 50%; transition: transform 0.3s ease;
       "></div>
       <div style="color: #333; position: absolute; top: 5px;">N</div>
-    </div>
-    `;
-    
+    </div>`;
     document.body.insertAdjacentHTML('beforeend', compassHTML);
     
-    function updateCompass() {
-      const compassNeedle = document.getElementById('compassNeedle');
-      const heading = viewer.camera.heading;
-      const headingDegrees = Cesium.Math.toDegrees(heading);
-      compassNeedle.style.transform = `rotate(${-headingDegrees}deg)`;
-    }
-    
-    viewer.camera.changed.addEventListener(updateCompass);
-    updateCompass();
+    viewer.camera.changed.addEventListener(() => {
+      const headingDegrees = Cesium.Math.toDegrees(viewer.camera.heading);
+      document.getElementById('compassNeedle').style.transform = `rotate(${-headingDegrees}deg)`;
+    });
     
     // ============================================================
-    // 범례 (나침반 바로 아래)
+    // 6. UI: 범례 (토글 기능 추가됨)
     // ============================================================
     const legendHTML = `
-    <div id="legendContainer" style="
-      position: absolute;
-      top: 100px;
-      left: 10px;
-      z-index: 1000;
-    ">
+    <div id="legendContainer" style="position: absolute; top: 100px; left: 10px; z-index: 1000;">
       <button id="legendToggle" style="
-        background: rgba(50, 150, 250, 0.9);
-        color: white;
-        border: none;
-        padding: 10px 15px;
-        border-radius: 5px;
-        cursor: pointer;
-        font-weight: bold;
-        font-size: 14px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-        margin-bottom: 5px;
-        width: 100%;
-      ">
-        📊 범례 표시/숨김
-      </button>
+        background: rgba(50, 150, 250, 0.9); color: white; border: none;
+        padding: 10px 15px; border-radius: 5px; cursor: pointer;
+        font-weight: bold; font-size: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        margin-bottom: 5px; width: 100%;
+      ">📊 범례 및 필터</button>
 
       <div id="legendPanel" style="
-        background: rgba(255, 255, 255, 0.95);
-        padding: 15px 20px;
-        border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        font-family: 'Segoe UI', Arial, sans-serif;
-        font-size: 13px;
-        min-width: 240px;
+        background: rgba(255, 255, 255, 0.95); padding: 15px 20px;
+        border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; min-width: 240px;
       ">
-        <div style="
-          font-size: 16px;
-          font-weight: bold;
-          margin-bottom: 12px;
-          color: #2c3e50;
-          border-bottom: 2px solid #3498db;
-          padding-bottom: 8px;
-        ">
-          🌳 Vegetation Encroachment
+        <div style="font-size: 16px; font-weight: bold; margin-bottom: 12px; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 8px;">
+          🌳 Vegetation Analysis
         </div>
         
         <div style="margin-bottom: 15px;">
-          <div style="font-weight: bold; color: #34495e; margin-bottom: 8px; font-size: 12px;">
-            VEGETATION (Class 3)
-          </div>
-          <div style="display: flex; align-items: center; margin-bottom: 6px;">
-            <div style="
-              width: 20px;
-              height: 20px;
-              background: #ff0000;
-              border-radius: 3px;
-              margin-right: 10px;
-              border: 1px solid rgba(0,0,0,0.2);
-            "></div>
+          <div style="font-weight: bold; color: #34495e; margin-bottom: 8px; font-size: 12px;">VEGETATION (Class 3)</div>
+          
+          <label class="legend-item">
+            <input type="checkbox" class="legend-checkbox" id="chkSafe" checked>
+            <div style="width: 20px; height: 20px; background: #ff0000; border-radius: 3px; margin-right: 10px; border: 1px solid rgba(0,0,0,0.2);"></div>
             <span style="color: #555;">High Risk (< 3.0m)</span>
-          </div>
-          <div style="display: flex; align-items: center;">
-            <div style="
-              width: 20px;
-              height: 20px;
-              background: #00ff00;
-              border-radius: 3px;
-              margin-right: 10px;
-              border: 1px solid rgba(0,0,0,0.2);
-            "></div>
+          </label>
+          
+          <label class="legend-item">
+            <input type="checkbox" class="legend-checkbox" id="chkHighRisk" checked>
+            <div style="width: 20px; height: 20px; background: #00ff00; border-radius: 3px; margin-right: 10px; border: 1px solid rgba(0,0,0,0.2);"></div>
             <span style="color: #555;">Safe (≥ 3.0m)</span>
-          </div>
+          </label>
         </div>
         
-        <div style="
-          border-top: 1px solid #ddd;
-          padding-top: 12px;
-          margin-top: 12px;
-        ">
-          <div style="font-weight: bold; color: #34495e; margin-bottom: 8px; font-size: 12px;">
-            INFRASTRUCTURE
-          </div>
-          <div style="display: flex; align-items: center; margin-bottom: 6px;">
-            <div style="
-              width: 20px;
-              height: 20px;
-              background: #0000ff;
-              border-radius: 3px;
-              margin-right: 10px;
-              border: 1px solid rgba(0,0,0,0.2);
-            "></div>
+        <div style="border-top: 1px solid #ddd; padding-top: 12px; margin-top: 12px;">
+          <div style="font-weight: bold; color: #34495e; margin-bottom: 8px; font-size: 12px;">INFRASTRUCTURE</div>
+          
+          <label class="legend-item">
+            <input type="checkbox" class="legend-checkbox" id="chkPowerLine" checked>
+            <div style="width: 20px; height: 20px; background: #0000ff; border-radius: 3px; margin-right: 10px; border: 1px solid rgba(0,0,0,0.2);"></div>
             <span style="color: #555;">Power Line (Class 5)</span>
-          </div>
-          <div style="display: flex; align-items: center;">
-            <div style="
-              width: 20px;
-              height: 20px;
-              background: #808080;
-              border-radius: 3px;
-              margin-right: 10px;
-              border: 1px solid rgba(0,0,0,0.2);
-            "></div>
+          </label>
+          
+          <label class="legend-item">
+            <input type="checkbox" class="legend-checkbox" id="chkPole" checked>
+            <div style="width: 20px; height: 20px; background: #808080; border-radius: 3px; margin-right: 10px; border: 1px solid rgba(0,0,0,0.2);"></div>
             <span style="color: #555;">Pole (Class 6)</span>
-          </div>
+          </label>
         </div>
         
-        <div style="
-          margin-top: 12px;
-          padding-top: 10px;
-          border-top: 1px solid #ddd;
-          font-size: 11px;
-          color: #7f8c8d;
-          text-align: center;
-        ">
+        <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid #ddd; font-size: 11px; color: #7f8c8d; text-align: center;">
           Safety Buffer: 3.0m (Ontario ESA)
         </div>
       </div>
-    </div>
-    `;
-    
+    </div>`;
     document.body.insertAdjacentHTML('beforeend', legendHTML);
-    
+
+    // 범례 토글 UI 이벤트
     const legendToggle = document.getElementById('legendToggle');
     const legendPanel = document.getElementById('legendPanel');
     let legendVisible = true;
-    
     legendToggle.addEventListener('click', () => {
       legendVisible = !legendVisible;
       legendPanel.style.display = legendVisible ? 'block' : 'none';
     });
-    
-    // ============================================================
-    // 축척 (우측 하단)
-    // ============================================================
-    const scaleBarHTML = `
-    <div id="scaleBar" style="
-      position: absolute;
-      bottom: 30px;
-      right: 20px;
-      background: rgba(255, 255, 255, 0.9);
-      padding: 10px 15px;
-      border-radius: 5px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-      font-family: 'Segoe UI', Arial, sans-serif;
-      font-size: 12px;
-      z-index: 1000;
-    ">
-      <div style="
-        width: 100px;
-        height: 3px;
-        background: #333;
-        margin-bottom: 5px;
-        position: relative;
-      ">
-        <div style="position: absolute; left: 0; top: -5px; width: 2px; height: 13px; background: #333;"></div>
-        <div style="position: absolute; right: 0; top: -5px; width: 2px; height: 13px; background: #333;"></div>
-      </div>
-      <div id="scaleText" style="text-align: center; font-weight: bold; color: #333;">
-        0 m
-      </div>
-    </div>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', scaleBarHTML);
-    
-    function updateScaleBar() {
-      const scaleText = document.getElementById('scaleText');
-      const canvas = viewer.scene.canvas;
-      const width = canvas.clientWidth;
-      
-      const left = new Cesium.Cartesian2(width / 2 - 50, canvas.clientHeight / 2);
-      const right = new Cesium.Cartesian2(width / 2 + 50, canvas.clientHeight / 2);
-      
-      const leftCartesian = viewer.camera.pickEllipsoid(left);
-      const rightCartesian = viewer.camera.pickEllipsoid(right);
-      
-      if (leftCartesian && rightCartesian) {
-        const distance = Cesium.Cartesian3.distance(leftCartesian, rightCartesian);
-        
-        if (distance < 1000) {
-          scaleText.textContent = `${distance.toFixed(0)} m`;
-        } else {
-          scaleText.textContent = `${(distance / 1000).toFixed(1)} km`;
-        }
-      }
-    }
-    
-    viewer.camera.changed.addEventListener(updateScaleBar);
-    updateScaleBar();
-    
-    // ============================================================
-    // 포인트 크기 조절 컨트롤 (축척 바로 위, 토글 가능)
-    // ============================================================
-    const pointSizeControlHTML = `
-    <div id="pointSizeContainer" style="
-      position: absolute;
-      bottom: 90px;
-      right: 20px;
-      z-index: 1000;
-    ">
-      <button id="pointSizeToggle" style="
-        background: rgba(50, 150, 250, 0.9);
-        color: white;
-        border: none;
-        padding: 10px 15px;
-        border-radius: 5px;
-        cursor: pointer;
-        font-weight: bold;
-        font-size: 14px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-        margin-bottom: 5px;
-        width: 100%;
-      ">
-        🎨 포인트 설정
-      </button>
 
-      <div id="pointSizePanel" style="
-        background: rgba(255, 255, 255, 0.95);
-        padding: 15px;
-        border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        font-family: 'Segoe UI', Arial, sans-serif;
-        font-size: 13px;
-        min-width: 200px;
-      ">
-        <div style="font-weight: bold; margin-bottom: 10px; color: #2c3e50;">
-          📏 포인트 크기
+    // 체크박스 이벤트 리스너 등록
+    document.getElementById('chkHighRisk').addEventListener('change', (e) => {
+      appState.visibility.highRisk = e.target.checked;
+      updateTilesetStyle();
+    });
+    document.getElementById('chkSafe').addEventListener('change', (e) => {
+      appState.visibility.safe = e.target.checked;
+      updateTilesetStyle();
+    });
+    document.getElementById('chkPowerLine').addEventListener('change', (e) => {
+      appState.visibility.powerLine = e.target.checked;
+      updateTilesetStyle();
+    });
+    document.getElementById('chkPole').addEventListener('change', (e) => {
+      appState.visibility.pole = e.target.checked;
+      updateTilesetStyle();
+    });
+
+    // ============================================================
+    // 7. UI: 축척 및 포인트 설정
+    // ============================================================
+    const controlsHTML = `
+    <div style="position: absolute; bottom: 30px; right: 20px; z-index: 1000; display: flex; flex-direction: column; align-items: flex-end;">
+      
+      <div id="pointSizeContainer" style="margin-bottom: 10px;">
+        <button id="pointSizeToggle" style="
+          background: rgba(50, 150, 250, 0.9); color: white; border: none; padding: 10px 15px;
+          border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 14px;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.3); width: 140px;
+        ">🎨 포인트 설정</button>
+        <div id="pointSizePanel" style="
+          background: rgba(255, 255, 255, 0.95); padding: 15px; border-radius: 8px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: 'Segoe UI', Arial, sans-serif;
+          font-size: 13px; margin-top: 5px; width: 200px;
+        ">
+          <div style="font-weight: bold; margin-bottom: 10px; color: #2c3e50;">📏 포인트 크기</div>
+          <input type="range" id="pointSizeSlider" min="1" max="10" value="3" step="0.5" style="width: 100%; margin-bottom: 5px;">
+          <div style="text-align: center; color: #555;"><span id="pointSizeValue">3</span> px</div>
+          <hr style="border: none; border-top: 1px solid #ddd; margin: 12px 0;">
+          <div style="font-weight: bold; margin-bottom: 10px; color: #2c3e50;">💡 Eye-Dome Lighting</div>
+          <label style="display: flex; align-items: center; cursor: pointer;">
+            <input type="checkbox" id="edlToggle" checked style="margin-right: 8px;">
+            <span style="color: #555;">깊이감 향상</span>
+          </label>
         </div>
-        <input type="range" id="pointSizeSlider" min="1" max="10" value="3" step="0.5" style="width: 100%; margin-bottom: 5px;">
-        <div style="text-align: center; color: #555;">
-          <span id="pointSizeValue">3</span> px
-        </div>
-        
-        <hr style="border: none; border-top: 1px solid #ddd; margin: 12px 0;">
-        
-        <div style="font-weight: bold; margin-bottom: 10px; color: #2c3e50;">
-          💡 Eye-Dome Lighting
-        </div>
-        <label style="display: flex; align-items: center; cursor: pointer;">
-          <input type="checkbox" id="edlToggle" checked style="margin-right: 8px;">
-          <span style="color: #555;">깊이감 향상</span>
-        </label>
       </div>
-    </div>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', pointSizeControlHTML);
-    
+
+      <div id="scaleBar" style="
+        background: rgba(255, 255, 255, 0.9); padding: 10px 15px; border-radius: 5px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px;
+      ">
+        <div style="width: 100px; height: 3px; background: #333; margin-bottom: 5px; position: relative;">
+          <div style="position: absolute; left: 0; top: -5px; width: 2px; height: 13px; background: #333;"></div>
+          <div style="position: absolute; right: 0; top: -5px; width: 2px; height: 13px; background: #333;"></div>
+        </div>
+        <div id="scaleText" style="text-align: center; font-weight: bold; color: #333;">0 m</div>
+      </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', controlsHTML);
+
+    // 포인트 사이즈 이벤트
     const pointSizeToggle = document.getElementById('pointSizeToggle');
     const pointSizePanel = document.getElementById('pointSizePanel');
-    const pointSizeSlider = document.getElementById('pointSizeSlider');
-    const pointSizeValue = document.getElementById('pointSizeValue');
-    const edlToggle = document.getElementById('edlToggle');
-    
     let pointSizeVisible = true;
-    
     pointSizeToggle.addEventListener('click', () => {
       pointSizeVisible = !pointSizeVisible;
       pointSizePanel.style.display = pointSizeVisible ? 'block' : 'none';
     });
-    
-    pointSizeSlider.addEventListener('input', (e) => {
-      const size = parseFloat(e.target.value);
-      pointSizeValue.textContent = size;
-      
-      if (tileset) {
-        tileset.style = new Cesium.Cesium3DTileStyle({
-          pointSize: size
-        });
+
+    document.getElementById('pointSizeSlider').addEventListener('input', (e) => {
+      appState.pointSize = parseFloat(e.target.value);
+      document.getElementById('pointSizeValue').textContent = appState.pointSize;
+      updateTilesetStyle(); // 스타일 재적용 (가시성 유지하며 크기 변경)
+    });
+
+    document.getElementById('edlToggle').addEventListener('change', (e) => {
+      if (tileset) tileset.pointCloudShading.eyeDomeLighting = e.target.checked;
+    });
+
+    // 축척 업데이트 로직
+    viewer.camera.changed.addEventListener(() => {
+      const scaleText = document.getElementById('scaleText');
+      const canvas = viewer.scene.canvas;
+      const width = canvas.clientWidth;
+      const left = viewer.camera.pickEllipsoid(new Cesium.Cartesian2(width/2 - 50, canvas.clientHeight/2));
+      const right = viewer.camera.pickEllipsoid(new Cesium.Cartesian2(width/2 + 50, canvas.clientHeight/2));
+      if (left && right) {
+        const dist = Cesium.Cartesian3.distance(left, right);
+        scaleText.textContent = dist < 1000 ? `${dist.toFixed(0)} m` : `${(dist/1000).toFixed(1)} km`;
       }
     });
-    
-    edlToggle.addEventListener('change', (e) => {
-      if (tileset) {
-        tileset.pointCloudShading.eyeDomeLighting = e.target.checked;
-      }
-    });
-    
-    // ============================================================
-    // 카메라 초기 설정
-    // ============================================================
+
+    // 카메라 초기 위치
     viewer.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(-79.3832, 43.6532, 500),
-      orientation: {
-        heading: Cesium.Math.toRadians(0),
-        pitch: Cesium.Math.toRadians(-45),
-        roll: 0.0,
-      },
+      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-45), roll: 0 }
     });
     
     viewer.scene.postProcessStages.fxaa.enabled = true;
-    
-    console.log("✅ Toronto 3D Vegetation Encroachment Analysis");
   </script>
 </body>
 </html>
